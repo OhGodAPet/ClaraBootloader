@@ -1,0 +1,385 @@
+-------------------------------------------------
+|Clara Bootloader Specification v0.11a - by Wolf	|
+-------------------------------------------------
+
+------------------------------------------------
+|Changelog											|
+------------------------------------------------
+0.11a:	Relaxed requirements regarding structure of loader; added changelog.
+0.1a:	Initial creation		(exact date unknown - 2010 to 2011)
+
+----------------------------
+|TODOs and Possible Changes|
+----------------------------
+- Kernel may need to specify partitions and directories for module loading
+- There must be a better way than mapping 16GB of memory...
+- Different signature for kernel info and boot info?
+- Set the flag when 32 bit legacy mode is needed?
+- Feature flag for loading modules above 4GB?
+
+---------------------------------
+|Section 1 - Introduction	|
+---------------------------------
+
+The purpose of this specification is to allow interoperability between bootloaders and operating system kernels, providing features required for modern code that is not present in older specifications that are no longer maintained, such as the Multiboot Specification.
+
+There are two main parts to this specification. One concerns compatibility between Stage 1 bootloaders and Stage 2 bootloaders; the other concerns compatibility between the Stage 2 bootloader and the kernel. A bootloader or kernel may label itself compliant if it meets the requirements for it set out in this specification. Additionally, a Stage 2 bootloader may label itself compatible with kernels using this specification if it meets only the requirements for interfacing with the kernel.
+
+-----------------------------------------
+|Section 2 - Conventions		|
+-----------------------------------------
+
+Certain key words are used in this specification to define the importance of what they reference. The words 'must', 'shall', and 'required' mean that if the condition that the word references is not met, the code is not compatible with this specification, or a part of this specification. The word 'should' means that what the word references is highly recommended, but not required. The words 'may' and 'optional' mean it is completely up to the implementer whether or not to comply with or include what the word references, although it is recommended.
+
+The word 'specification' may be shortened to 'spec', and all references to the 'Clara Specification' or 'Clara spec' refer to the Clara Bootloader Specification described in this document.
+
+In this specification, a byte is 8 bits, a word is 16 bits, a dword is 32 bits, and a qword is 64 bits.
+
+-----------------------------------------
+|Section 3 - Information Structures	|
+-----------------------------------------
+The information structures used in this specification are defined in this section, each with a table and a description. All addresses are 64 bits wide, and can be padded with legacy kernels. Note that in the figures below, both the size and offset values are in bytes.
+
+Name: Clara Kernel Information Structure
+Used For: Loading kernel
+Total Size: 54 bytes
+-----------------------------------------
+|Offset |Size	|Name			|
+|-------|-------|-----------------------|
+|0	|4	|Signature		|
+|4	|4	|OptionFlags		|
+|8	|4	|TargetMachine		|
+|12	|4	|Checksum		|
+|16	|8	|HeaderAddress		|
+|24	|8	|BaseAddress		|
+|32	|8	|EndAddress		|
+|40	|4	|EntryPointOffset	|
+|44	|8	|ModuleList		|
+-----------------------------------------
+
+Signature
+---------
+A magic number used to determine compliance with this specification, and ease the process of finding the structure. The value is 0x50415753.
+
+OptionFlags
+-----------
+A bit field used to pass kernel requirements and requests to the Stage 2 bootloader. The high word is used to signal requests, and the low word is used to signal requirements. 
+
+Requirements:
+	- Bit 0: If set, offsets 16-32 must be used by the Stage 2 loader.
+	- Bit 1: If set, module information is valid and must be used. (requires 	the HeaderAddress value)
+	- Bit 2: If set, the kernel is 64 bit, and must be loaded as such.
+	- Bits 3-15: Reserved, must be zero.
+Requests:
+	- Bit 16: Offsets 16-32 are valid. File format information is to be 		preferred.
+	- Bit 17: Loader should prefer structure to file format information. 			Requires bit 16.
+	- Bits 18-31: Reserved, must be zero.
+
+TargetMachine
+-------------
+A value which specifies what machine the kernel is designed for. This helps stop a machine from executing a kernel binary not meant for it. The high word is used for select the family or architecture, and the low word to designate a subtype. Note that compatible machines will not cause an error, if a kernel has the x86 family and x86-32 as its TargetMachine value, it will not cause any problems if run on an x86-64 machine in legacy mode.
+
+Family 0x00 - Unspecified
+	- 0x00		Unspecified machine
+	- 0x01-0xFF	Reserved
+Family 0x01 - x86 Family
+	- 0x00		Any x86 machine
+	- 0x01		x86/x86-32/IA-32/i386
+	- 0x02		x64/x86-64/AMD64/Intel 64/IA-32e
+Family 0x02 - Intel Itanium/IA-64
+	- 0x00		Any Itanium machine
+
+Checksum
+--------
+A value used to ensure the integrity of the first three values. The sum of this value added to the Signature, OptionFlags, and TargetMachine values should produce 32 bit unsigned zero. If not, the structure must be considered corrupt by the Stage 2 bootloader.
+
+HeaderAddress
+-------------
+The address at which the kernel sees the beginning of this header. Used for calculating the relationship between physical addresses and the kernel's addresses, needed when loading from the structure values or loading modules. If bit 16 is clear in OptionFlags (meaning there is no loading information in the structure), and bit 1 is clear (meaning there is no module information), then HeaderAddress is optional. If it is not included, it must be set to all zeros.
+
+BaseAddress
+-----------
+The physical address at which the kernel expects to be loaded.
+
+EndAddress
+----------
+The physical address at which the Stage 2 bootloader must stop loading. If set to zero, the Stage 2 loader will load the kernel until EOF. This member effectively allows the loading of only part of a file.
+
+EntryPointOffset
+----------------
+The location of the entry point, relative to the base address. To get the absolute address of the entry point, add this value to the BaseAddress value.
+
+ModuleList
+----------
+A pointer to a linked list of ModuleListEntry structures.
+
+Name: Clara Bootloader Information Structure
+Used For: Passing kernel important data
+Total Size: 36 bytes
+-----------------------------------------
+|Offset |Size	|Name			|
+|-------|-------|-----------------------|
+|0	|4	|Signature		|
+|4	|2	|LowerMemoryKB		|
+|6	|8	|TotalMemoryKB		|
+|14	|2	|BIOSBootDevice		|
+|16	|4	|NumberOfMemMapEntries	|
+|20	|8	|MemoryMap		|
+|28	|8	|CommandLine		|
+-----------------------------------------
+
+Signature
+---------
+Used to verify the structure's existence. The value is 0x50415753.
+
+LowerMemoryKB
+-------------
+The amount of conventional memory available, in 1KB increments.
+
+TotalMemoryKB
+-------------
+The total amount of memory available, in 1KB increments.
+
+BIOSBootDevice
+--------------
+The BIOS number for the drive that was booted from.
+
+NumberOfMemMapEntries
+---------------------
+The number of entries in the memory map.
+
+MemoryMap
+---------
+Pointer to memory map obtained from the BIOS.
+
+CommandLine
+-----------
+Pointer to a NULL terminated string; the command line used to invoke the kernel. Must be NULL if unused.
+
+Name: ModuleListEntry
+Used For: Specifying modules to be loaded by the Stage 2 bootloader
+Total Size: 28 bytes
+-----------------------------------------
+|Offset |Size	|Name			|
+|-------|-------|-----------------------|
+|0	|8	|BaseAddress		|
+|8	|4	|NameLength		|
+|12	|8	|Filename		|
+|20	|8	|NextModule		|
+-----------------------------------------
+
+BaseAddress
+-----------
+The base address to which the module must be loaded.
+
+NameLength
+----------
+The length, in bytes, of the filename.
+
+Filename
+--------
+A pointer to the file name.
+
+NextModule
+----------
+A pointer to the next module entry in the list. If there are no more, this must be NULL.
+
+Name: MemoryMapEntry
+Used For: Identifying usable and special memory regions
+Total Size: 28 bytes
+-----------------------------------------
+|Offset |Size	|Name			|
+|-------|-------|-----------------------|
+|0	|4	|LengthOfEntry		|
+|4	|8	|BaseAddress		|
+|12	|8	|LengthOfRegion		|
+|20	|4	|TypeOfRegion		|
+|24	|4	|ACPIAttributes		|
+-----------------------------------------
+
+Note that the Stage 2 bootloader is responsible for removing useless or invalid entries. As the ACPI dword may not be implemented, making it all zeros, the bootloader should set bit zero of the ACPI dword if one is not returned.
+
+LengthOfEntry
+-------------
+The length, in bytes, of the rest of the entry. Note that this doesn't include the space it takes up. Used to allow the specification to take advantage of future extensions to the BIOS interrupt.
+
+BaseAddress
+-----------
+Base address of the region this entry is describing.
+
+LengthOfRegion
+--------------
+Length of the region this entry is describing, in bytes.
+
+TypeOfRegion
+------------
+Describes the region.
+
+Type 1: Normal, usable RAM
+Type 2: Reserved memory, unusable
+Type 3: ACPI reclaimable memory
+Type 4: ACPI NVS memory
+Type 5: Bad memory
+
+All other values are currently reserved.
+
+ACPIAttributes
+--------------
+Bit field for ACPI 3.0 Extended Attributes.
+
+Bit 0: If clear, entire entry should be ignored
+Bit 1: Entry is non-volatile
+Bits 2-31: Currently undefined
+
+-----------------------------------------------------------------
+|Section 4 - Criteria for x86 systems based on BIOS firmware	|
+-----------------------------------------------------------------
+
+This section contains the requirements and recommendations of the Clara Specification for Stage 1 bootloaders, Stage 2 bootloaders, and kernels.
+
+-----------------------------------------------------------------
+|Section 4.1 - Lists of Requirements and Recommendations	|
+-----------------------------------------------------------------
+
+This section contains cursory lists of the requirements and recommendations of the Clara Specification for Stage 1 bootloaders, Stage 2 bootloaders, and kernels. As it is a cursory list, it references other sections of this document rather than going into detail.
+
+------------------------------------------------------
+|Section 4.1.1 - Criteria for Bootloader Compliance	|
+---------------------------------------------------------
+
+The following is a list of the requirements and recommendations for a bootloader-compliant Stage 2 bootloader.
+
+1. The first 4 bytes must be the signature 0x59494646.
+
+2. If the Stage 2 bootloader chooses to modify the stack, it must ensure that its stack has the same amount of space or greater when calling routines from Stage 1. All memory between 0xA00 and 0x7E00 is to be assumed reserved by the Stage 1 bootloader. This area must not be modified by the Stage 2 bootloader.
+
+3. Any file I/O done must be done through the interfaces exposed by the Stage 1 bootloader. There shall be no attempt by the Stage 2 bootloader to access the disk or parse the filesystem independently. This allows for multiple Stage 1 bootloaders to be made while the often more complex Stage 2 bootloaders may be reused with any disk or filesystem.
+
+---------------------------------------------------------
+|Section 4.1.2 - Criteria for Kernel Compliance	|
+---------------------------------------------------------
+
+For Stage 2 bootloaders, requirements and recommendations for compatibility with compliant kernels are as follows:
+
+1. The processor must support the CPUID instruction. For Intel x86 processors, this requires the processor to be a 586 or newer. For AMD x86 processors, this requires the processor to be an Am5x86 or newer. If the manufacturer has outlined the procedure for identifying CPUs that do not support CPUID, that procedure should be used. If the CPU is too old to support CPUID, the Stage 2 bootloader must cease execution, and may display an error.
+
+2. The processor must support 32 bit protected mode, if it does not, the Stage 2 bootloader must cease execution and may display an error.
+
+3. Loading files above the 1MB mark must be supported. Additionally, it is recommended that the Stage 2 bootloader refuse to load to addresses below under 1MB, as this area is used for information passed to the kernel. If the Stage 2 bootloader is willing to deal with this, it may support loading to addresses below 1MB, however, it is not recommended.
+
+4. The Stage 2 bootloader may support loading specific file formats natively. Since this is not required, the kernel's Clara Information Structure may provide the details required for the bootloader to load it. These details are not required, so if the Stage 2 bootloader has no support for the file format, and the loading information in the kernel's Clara Information Structure is missing, or the structure is corrupt, the Stage 2 loader must cease execution, and may display an error.
+
+5. If the Stage 2 bootloader does not know the meaning of flags set in bits 0-15 in the OptionFlags dword, it must cease execution and may display an error. Bits 16-31 are optional, and the loader may continue if it does not understand one, and may display a warning or error.
+
+6. If the TargetMachine value is invalid for the type of machine the Stage 2 loader was built for (and presumably executing on), it must cease execution and may display an error.
+
+7. The Stage 2 bootloader must pass a Bootloader Clara Information Structure to the kernel, using a pointer to it in ECX/RCX.
+
+8. All information that must be retained after control is passed to the kernel, such as the Bootloader Clara Information Structure, must be below 1MB in memory. The only exception is the kernel, and any of its modules.
+
+9. The Stage 2 bootloader should restrict itself to memory underneath 1MB, with one exception. If the kernel or a module needs to be loaded above 4GB, the loader should use memory between 1MB and 4GB to temporarily store the file. 
+
+10. When loading a kernel, whether 32 or 64 bit, the processor requires that a GDT be set up. The requirements and recommendations for the GDT are specified in section 3.2.3, "Machine State between Stage 2 and the Kernel."
+
+11. When loading 32 bit kernels, the processor must be in 32 bit mode. For For  requirements and recommendations specific to 32 bit mode, refer to section 3.2.3.1, "Machine State between Stage 2 and the Kernel in 32 Bit Mode."
+
+12. When loading 64 bit kernels, the processor must be in 64 bit long mode. For  requirements and recommendations specific to 64 bit mode, refer to section 3.2.3.2, "Machine State between Stage 2 and the Kernel in 64 Bit Mode."
+
+---------------------------------------------------------
+|Section 4.2 - Machine State When Transferring Control	|
+---------------------------------------------------------
+This section describes the machine state that must be entered before transferring control to another program, and what state the program may expect the machine to be in when it is executed.
+
+-----------------------------------------------------------------
+|Section 4.2.1 - Machine State Between The BIOS and Stage 1	|
+-----------------------------------------------------------------
+When the BIOS finds the signature (0x55AA) at the end of the Stage 1 bootloader, it will load the entire sector into memory, usually at 0x0000:0x7C00. However, some BIOSs load to 0x07C0:0x0000, which may cause problems in the Stage 1 bootloader code, as well as break compliance with the specification, as CS is to be zero when Stage 2 is executed. Because of this, it is recommended to use a far jump to specify the value of CS at the very beginning of your code. The BIOS provides its interrupts, which are far from standardized, although there are a few that may be reasonably relied upon. Register DL contains the BIOS number of the drive the Stage 1 bootloader was loaded from, and the CPU is in real mode, with only one processor active.
+
+-----------------------------------------------------------------
+|Section 4.2.2 - Machine State Between Stage 1 and Stage 2	|
+-----------------------------------------------------------------
+Since the top of the stack must be located at 0x9FF, the absolute addresses of the arguments are known. All addresses must be absolute, that is, they assume a segment of zero. The arguments are to be pushed in the following order, with the first argument at the lowest address: 
+
+- If implemented, a pointer to the directory loading routine
+- A pointer to the file loading routine 
+- A pointer to the file finding routine 
+- The number of bytes in one sector on the boot device.
+- The feature flags and the BIOS boot drive number.
+
+All of these are to be pushed as 2 byte words. The last argument contains two seperate pieces of information. The high byte contains the feature flags, the low byte contains the BIOS boot drive number. The flags are a bit field, defined as follows:
+
+Bit 0: Directory function support. If set, there is another word on the stack after the pointer to the file loading routine; it is a pointer to the directory loading routine.
+
+Bit 1: Long file name support. If set, the file finding routine supports filenames other than 8.3 style ones.
+
+Bits 2-7: Reserved, and should be zero. If set, it may cause undefined behavior in Stage 2 bootloaders that comply with a future version of this specification, as well as break compatibility for the Stage 1 bootloader with future versions of the Clara specification.
+
+The segment registers CS, DS, ES, and SS must be set to zero when the Stage 2 bootloader is executed.
+
+-----------------------------------------------------------------
+|Section 4.2.3 - Machine State Between Stage 2 and the Kernel 	|
+-----------------------------------------------------------------
+This section defines the state the machine is to be in when control is passed to the kernel, and what the kernel can expect from the Stage 2 bootloader. This section also defines what the Stage 2 bootloader is to do to create the environment for different types of kernels. There are some things that are mostly the same, however, and one of those things is the GDT. In both legacy mode and long mode, a GDT is required. The GDT used by the Stage 2 bootloader for both legacy (32-bit) and modern (64-bit) kernels must have three descriptors. The NULL descriptor must be first, with an offset of 0x00, the code selector should be second, with an offset of 0x08, and the data selector should be third, with an offset of 0x10. GDT values that follow all requirements and recommendations, as well as descriptions, are below.
+
+0x0000000000000000 - Legacy (32-bit) NULL Descriptor
+0x0000000000000000 - Modern (64-bit) NULL Descriptor
+
+0x00CF9A000000FFFF - Legacy (32-bit) Code Descriptor
+0x00AF9A000000FFFF - Modern (64-bit) Code Descriptor
+
+0x00CF92000000FFFF - Legacy (32-bit) Data Descriptor
+0x00AF92000000FFFF - Modern (64-bit) Data Descriptor
+
+The NULL descriptor is simply be 8 bytes of zeroes, and it is the same for both modes. Although the placement of the code and data descriptors are merely recommended, the placement of the NULL descriptor is required. It must be the first descriptor. There are tricks such as using the NULL descriptor area to store the GDT pointer, although this may be possible without errors, this is discouraged. It is recommended that the NULL descriptor be filled with zeros.
+
+The code descriptor should come after the NULL descriptor, and the data descriptor after the code descriptor. However, note that this placement is not required, only recommended. The first two zeroes are the highest byte of the base address. Since the base address must be zero, this byte is set to zero. 
+
+The next byte in the legacy code and data descriptors is 0xCF. They contain flags for the processor, and their binary representation is 1100 1111. Starting from the left, the first bit indicates granularity. This tells the processor to interpret the segment limit as 4KB units, rather than one byte units, which allows it to reach 4GB in only 20 bits. This must be set to 1. The next bit decides the default operation size, as well as the processor mode the descriptor is to be used in. When set to 1, it indicates 32 bit operation, and a legacy mode descriptor, while 0 describes 16 bit operation, and a real mode descriptor. The next bit, if set, labels it as a 64-bit descriptor, and must be clear in this case. The last bit in this nibble is available for use by the OS, and should be set to zero. The next nibble is the top four bits (bits 16-19) of the segment limit, and they all must be set to 1.
+
+In the modern code and data descriptors above, the second byte from the left is different from the legacy descriptors. Their binary representation is 1010 1111, and is similar to the value in the legacy descriptors. The bit on the far left is, again, the granularity bit, and must be set. The next bit on the right must be clear. I said before that this value would indicate a 16 bit descriptor and operation size, and it does, except when the third bit from the left is set. Together, they indicate a 64 bit descriptor. Therefore, the second bit from the left must be clear, and the third bit must be set. The last bit in this nibble is, again, available for the OS to use, and should be clear. The next nibble is the same as before, the upper four bits of the segment limit (bits 16-19), and all of them must be set to 1.
+
+The next byte is the same for both code descriptors (0x9A), but different for each data descriptor (0x92). The first nibble is the same, and their meanings are the same in code and data descriptors, either legacy or modern. Its binary representation is 1001. The first bit on the far left indicates that the segment being described is in memory, and must be set to zero. When swapping to disk, for example, some segments may not be in memory. The next two bits on the right indicate the "ring", or Current Protection Level (CPL). Both of these must be set to zero, as the kernel's execution environment is in Ring 0. The last bit in this nibble must be set to 1, indicating that this is not a system descriptor, but rather a code or data descriptor. 
+
+The next nibble is where the code and data descriptors differ. For both, they specify the type of descriptor, however, the meanings are different. For code descriptors, the nibble's binary representation is 1010. Going from the left, the first bit identifies it as a code descriptor, and must be set. The next bit on the right tells the CPU whether or not the segment is conforming. Non-conforming segments cannot be accessed from a higher CPL, or lower privilege level, without raising a general-protection exception unless the transfer of execution is done through a call or task gate. As all code that will executing on the machine using this GDT will (presumably) be of the highest privilege level, this bit is probably irrelevant. However, it is recommended it be set to zero. The next bit determines the segment permissions, and must be set. If clear, the segment may only be executed, if set, the segment may be read and executed. Writing to a segment using a code descriptor is not supported in any mode besides 16 bit real mode and V8086 mode. The last bit in this nibble is set by the processor when the segment is accessed. It is otherwise unused, and therefore may be used for any purpose one desires. It is recommended to set it to zero.
+
+For data descriptors, this nibble's binary representation is 0010. Starting from the left, the first bit has the same function as in the code descriptor, and must be set to zero. The next bit indicates expansion direction. If the data segment is used for a stack, this bit controls whether the stack "grows" up or down in memory. This bit must be clear. The third bit from the left controls permissions. If clear, the segment may only be read, otherwise, it may be read and written. The last bit in this nibble is used for the same purpose as in the code descriptor, the processor sets it when the segment is accessed, but otherwise unused. It is recommended to set it to zero.
+
+All of the remaining sections of the GDT are the same between 32 and 64 bit descriptors, as well as code and data descriptors, therefore, this applies globally. The next byte is 0x00, and is the middle (bits 16-23) of the segment base. Since the segment base must be zero, this also must be set to zero. The next word (two bytes) is 0x0000, and is the low word (bits 0-15) of the base address. This must be set to zero. The last word is 0xFFFF, and is the low word (bits 0-15) of the segment limit. As the segment limit must be 4GB, and 4GB is the highest possible value of the segment limit, this entire word must be set to binary ones, or, in hexadecimal, 0xFFFF.
+
+That completes the description of the GDT for both legacy and modern modes. GDT values that follow both the requirements and recommendation are above, and may be used verbatim, as a starting point, or a reference.
+
+In addition, there must not be an LDT set up when the Stage 2 bootloader executes the kernel.
+
+The Stage 2 bootloader must fail if a bit is set in the low 16 bits of the OptionFlags member of the Clara Kernel Information Structure that it does not understand the purpose of, or cannot fulfill. This stops bootloaders that do not work with a newer version of the specification from loading newer kernels without fulfilling their requirements. The high 16 bits are optional things, and may be ignored safely.
+
+If bit 0 of the OptionFlags value is set, the Stage 2 bootloader must use the values in the Clara Kernel Information Structure, specifically the data at offsets 16-32, to load the kernel. This bit implies that bit 16 is set, and the loader should raise an error if this bit is set while it 16 is clear. If the structure is corrupt, the bootloader should cease loading the kernel. Although attempting to parse the file format may be done, it is not a recommended way to load the kernel as it goes against what the kernel has defined and is expecting.
+
+If bit 1 is set, the module information fields in the structure are valid and should be used. If this bit is set, it implies the HeaderAddress field is valid, as this is required to load the modules. If the structure is corrupt, the kernel must not be loaded without its modules.
+
+If bit 2 is set, the kernel is 64 bit and requires a long mode environment to function correctly. The kernel must not be executed in legacy mode; if long mode is not supported on the processor, the Stage 2 bootloader must cease loading, and may print an error message.
+
+Bits 3-15 are reserved, and should be zero. These bits are to be treated as a requirement for the kernel that is currently unknown. If any reserved bits are set, the Stage 2 bootloader must cease loading, and may provide an error message.
+
+If bit 16 is set, the information at offsets 16-32 in the Clara Kernel Information Structure are valid. The default behavior for the loader must be to prefer the headers provided by the file format over the values in the structure. The structure values should be used only if the Stage 2 bootloader does not support the file format, if the structure is corrupt, or bit 17 is set.
+
+If bit 17 is set, the Stage 2 bootloader should prefer the information in offsets 16-32 over the headers provided by the file format. If this bit is set, the information provided by the file format must only be used if the structure is corrupt. This bit implies bit 16, and the loader should cease loading and may provide an error message if this bit is set while bit 16 is clear.
+
+Bits 18-31 are reserved, and are to be treated as optional flags whose request is unknown. Bits that the Stage 2 bootloader does not understand, or cannot fulfill, may be responded to with a warning, or nothing at all. As these bits represent requests, not demands, it is not recommended that the bootloader treat the inability to satisfy the request as a fatal error.
+
+Anything that must remain in memory after Stage 2 has transferred control to the kernel, for example, information that is passed to the kernel from Stage 2 in memory must be under 1MB. The only exception is, obviously, the kernel and any modules. The loader should also restrict itself to using memory underneath 1MB, to prevent complications when the kernel, and possibly modules, are loaded.
+
+The Stage 2 bootloader must clear the Interrupt Flag (IF) in EFLAGS, as well as disable NMIs before exiting real mode.
+
+The Stage 2 bootloader must pass several values to the kernel. Regardless of mode, EAX must hold the signature, which is the same as the one used in the Clara Bootloader Information Structure. In 64-bit mode, RBX must be used to pass the address of the structure, in 32-bit mode, EBX must be used. 
+
+The method used to transfer execution to the kernel is up to the implementer. The loader may use a call, jump, or return. If a call is used, the kernel has a return address, so the loader may include a bit of code to ensure the processor doesn't start executing random bytes if the kernel returns. Jumps and returns leave no return address. As the kernel should not return, it should not be necessary to include such things, and therefore they are purely optional.
+
+----------------------------------------------------------------------------
+|Section 4.2.3.1 - Machine State Between Stage 2 the Kernel in 32 Bit Mode |
+----------------------------------------------------------------------------
+This section only specifies the requirements and recommendations that are specific to a legacy (32-bit) kernel. Refer to section 4.3, "Machine State Between Stage 2 and the Kernel" for the requirements and recommendations that apply to all supported x86 kernels. For a legacy kernel, the Stage 2 bootloader must enter legacy protected mode, known as compatibility mode on x64 processors, before executing the kernel. The Global Descriptor Table (GDT) is required to enter this mode, so one must be set up. Again, refer to section 4.3 for details. 
+
+----------------------------------------------------------------------------
+|Section 4.2.3.2 - Machine State Between Stage 2 the Kernel in 64 Bit Mode |
+----------------------------------------------------------------------------
+This section only specifies the requirements and recommendations that are specific to a modern (64-bit) kernel. Refer to section 4.3, "Machine State Between Stage 2 and the Kernel" for the requirements and recommendations that apply to all supported x86 kernels. For a modern kernel, a GDT must be set up (again, refer to section 4.3 for details), and paging must be enabled. IA-32e paging must be used by the Stage 2 bootloader for this purpose. The loader must identity map (make physical and virtual addresses the same) the first 16GB of memory, using 2MB pages. PAE must be set in CR4, the physical address of the PML4 table must be moved into CR3, LME must be set in the EFER MSR, and finally, PE and PG must be set in CR0. As stated in section 4.3, "Machine State Between Stage 2 and the Kernel", the loader should restrict itself to using memory underneath 1MB, however, there is one exception when using 64-bit mode. If the kernel or one of its modules supply a base address above 4GB, the Stage 2 bootloader should use an area of memory under 4GB as temporary storage for the kernel or module. It is the responsibility of the Stage 2 bootloader to ensure the integrity of the files it is loading while using memory above 1MB.
