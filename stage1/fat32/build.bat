@@ -1,0 +1,2 @@
+@fasm boot.asm
+@diskwrite

@@ -1,0 +1,7 @@
+loadDriver("C:/Users/Owner/Projects/OperatingSystems/Onix/OnixLocal/FAT32.dll");
+mount("C:/Users/Owner/Documents/My Dropbox/Xenon/hd_fat32.img");
+
+rawWrite('boot.bin',0,0,3);
+rawWrite('boot.bin',90,90,419);
+
+dismount();
